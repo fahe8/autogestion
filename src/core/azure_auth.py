@@ -352,5 +352,4 @@ async def get_current_azure_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Falta el token Bearer de Azure o una sesion iniciada.",
         )
-
     return await verify_azure_access_token(token)

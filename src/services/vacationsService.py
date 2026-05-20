@@ -1,5 +1,5 @@
 from datetime import date, datetime, time, timedelta
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import holidays
 from fastapi import HTTPException, status
@@ -16,6 +16,11 @@ from src.schemas.vacationsSchema import (
     VacationRequestValidationResponse,
     VacationSummary,
     VacationTypeOption,
+    VacationRequestUser,
+    VacationRequestDetailResponse,
+    VacationRequestApproveRequest,
+    VacationRequestRejectRequest,
+    VacationRequestUpdateStatusResponse,
 )
 
 
@@ -64,7 +69,14 @@ class VacationService:
         errors: List[str] = []
         excluded_dates = self._get_excluded_dates(payload.start_date, payload.end_date)
         business_dates = self._get_business_dates(payload.start_date, payload.end_date)
+        
+        current_date = date.today()
 
+        if payload.start_date < current_date:
+            errors.append("La fecha inicial no puede ser anterior a la fecha actual.")
+        if payload.end_date < current_date:
+            errors.append("La fecha final no puede ser anterior a la fecha actual.")
+        
         if payload.start_date > payload.end_date:
             errors.append("La fecha inicial no puede ser mayor a la fecha final.")
         else:
@@ -96,7 +108,7 @@ class VacationService:
                 if is_valid
                 else "La solicitud no supera las validaciones."
             ),
-            requested_days=len(business_dates),
+            total_days=len(business_dates),
             business_dates=business_dates,
             excluded_dates=excluded_dates,
             errors=errors,
@@ -123,10 +135,7 @@ class VacationService:
                 "vacation_type_id": payload.vacation_type_id,
                 "start_date": self._to_datetime(payload.start_date),
                 "end_date": self._to_datetime(payload.end_date),
-                "requested_days": validation.requested_days,
-                "payment_date": (
-                    self._to_datetime(payload.payment_date) if payload.payment_date else None
-                ),
+                "total_days": validation.total_days,
             }
         )
 
@@ -136,7 +145,7 @@ class VacationService:
             vacation_type=self._to_vacation_type_option(vacation_type),
             start_date=created_request.start_date.date(),
             end_date=created_request.end_date.date(),
-            requested_days=created_request.requested_days,
+            total_days=created_request.requested_days,
             status=created_request.status,
             payment_date=(
                 created_request.payment_date.date()
@@ -147,21 +156,35 @@ class VacationService:
             validation=validation,
         )
 
-    async def get_vacation_history(self, user_id: str) -> VacationRequestHistoryResponse:
+    async def get_vacation_history(
+        self, user_id: str, page: int, page_size: int
+    ) -> VacationRequestHistoryResponse:
         await self._ensure_user_exists(user_id)
+        skip = (page - 1) * page_size
+        take = page_size
+
         requests = await self.prisma_client.vacationrequest.find_many(
             where={"user_id": user_id},
-            include={"vacation_type": True},
+            include={"user": True, "vacation_type": True},
             order={"created_at": "desc"},
+            skip=skip,
+            take=take,
+        )
+
+        total_requests = await self.prisma_client.vacationrequest.count(
+            where={"user_id": user_id}
         )
 
         items = [
             VacationRequestHistoryItem(
                 id=request.id,
+                user=VacationRequestUser(
+                    id=request.user.id, email=request.user.email, name=request.user.name
+                ),
                 vacation_type=self._to_vacation_type_option(request.vacation_type),
                 start_date=request.start_date.date(),
                 end_date=request.end_date.date(),
-                requested_days=request.requested_days,
+                total_days=request.requested_days,
                 status=request.status,
                 rejection_reason=request.rejection_reason,
                 payment_date=request.payment_date.date() if request.payment_date else None,
@@ -169,9 +192,311 @@ class VacationService:
                 updated_at=request.updated_at,
             )
             for request in requests
-            if request.vacation_type is not None
+            if request.vacation_type is not None and request.user is not None
         ]
-        return VacationRequestHistoryResponse(items=items)
+        return VacationRequestHistoryResponse(
+            items=items, total_items=total_requests, page=page, page_size=page_size
+        )
+
+    async def get_vacation_request_detail(self, request_id: str) -> VacationRequestDetailResponse:
+        print(request_id)
+        request = await self.prisma_client.vacationrequest.find_unique(
+            where={"id": request_id},
+            include={"vacation_type": True},
+        )
+
+        if not request:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Solicitud de vacaciones no encontrada.",
+            )
+        if not request.vacation_type:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Tipo de vacaciones no encontrado para la solicitud.",
+            )
+
+        return VacationRequestDetailResponse(
+            id=request.id,
+            user_id=request.user_id,
+            vacation_type=self._to_vacation_type_option(request.vacation_type),
+            start_date=request.start_date.date(),
+            end_date=request.end_date.date(),
+            total_days=request.requested_days,
+            status=request.status,
+            payment_date=request.payment_date.date() if request.payment_date else None,
+            created_at=request.created_at,
+            updated_at=request.updated_at,
+        )
+
+    async def validate_vacation_request_status(
+        self, request_id: str
+    ) -> VacationRequestUpdateStatusResponse:
+        print(f"Validando solicitud de vacaciones con ID: {request_id}")
+
+        request = await self.prisma_client.vacationrequest.find_unique(
+            where={"id": request_id},
+            include={"vacation_type": True},
+        )
+
+        if not request:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Solicitud de vacaciones no encontrada.",
+            )
+        if not request.vacation_type:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Tipo de vacaciones no encontrado para la solicitud.",
+            )
+
+        current_status = RequestStatus(request.status)
+        new_status = RequestStatus.VALIDATED
+
+        allowed_transitions = {
+            RequestStatus.PENDING: [RequestStatus.VALIDATED, RequestStatus.REJECTED],
+            RequestStatus.VALIDATED: [RequestStatus.APPROVED, RequestStatus.REJECTED],
+            RequestStatus.APPROVED: [],
+            RequestStatus.REJECTED: [],
+        }
+
+        if new_status not in allowed_transitions.get(current_status, []):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Transición de estado no válida de '{current_status.value}' a '{new_status.value}'.",
+            )
+
+        updated_request = await self.prisma_client.vacationrequest.update(
+            where={"id": request_id},
+            data={
+                "status": new_status,
+                "updated_at": datetime.now(),
+            },
+        )
+
+        return VacationRequestUpdateStatusResponse(
+            id=updated_request.id,
+            user_id=updated_request.user_id,
+            vacation_type=self._to_vacation_type_option(request.vacation_type),
+            start_date=updated_request.start_date.date(),
+            end_date=updated_request.end_date.date(),
+            total_days=request.requested_days,
+            status=updated_request.status,
+            rejection_reason=updated_request.rejection_reason,
+            payment_date=updated_request.payment_date.date() if updated_request.payment_date else None,
+            created_at=updated_request.created_at,
+            updated_at=updated_request.updated_at,
+        )
+
+    async def approve_vacation_request(
+        self, request_id: str, payment_date: date
+    ) -> VacationRequestUpdateStatusResponse:
+        request = await self.prisma_client.vacationrequest.find_unique(
+            where={"id": request_id},
+            include={"vacation_type": True},
+        )
+
+        if not request:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Solicitud de vacaciones no encontrada.",
+            )
+        if not request.vacation_type:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Tipo de vacaciones no encontrado para la solicitud.",
+            )
+
+        current_status = RequestStatus(request.status)
+        new_status = RequestStatus.APPROVED
+
+        allowed_transitions = {
+            RequestStatus.PENDING: [RequestStatus.VALIDATED, RequestStatus.REJECTED],
+            RequestStatus.VALIDATED: [RequestStatus.APPROVED, RequestStatus.REJECTED],
+            RequestStatus.APPROVED: [],
+            RequestStatus.REJECTED: [],
+        }
+
+        if new_status not in allowed_transitions.get(current_status, []):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Transición de estado no válida de '{current_status.value}' a '{new_status.value}'.",
+            )
+
+        updated_request = await self.prisma_client.vacationrequest.update(
+            where={"id": request_id},
+            data={
+                "status": new_status,
+                "payment_date": self._to_datetime(payment_date),
+                "updated_at": datetime.now(),
+            },
+        )
+
+        return VacationRequestUpdateStatusResponse(
+            id=updated_request.id,
+            user_id=updated_request.user_id,
+            vacation_type=self._to_vacation_type_option(request.vacation_type),
+            start_date=updated_request.start_date.date(),
+            end_date=updated_request.end_date.date(),
+            total_days=request.requested_days,
+            status=updated_request.status,
+            rejection_reason=updated_request.rejection_reason,
+            payment_date=updated_request.payment_date.date() if updated_request.payment_date else None,
+            created_at=updated_request.created_at,
+            updated_at=updated_request.updated_at,
+        )
+
+    async def reject_vacation_request(
+        self, request_id: str, rejection_reason: str
+    ) -> VacationRequestUpdateStatusResponse:
+        request = await self.prisma_client.vacationrequest.find_unique(
+            where={"id": request_id},
+            include={"vacation_type": True},
+        )
+
+        if not request:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Solicitud de vacaciones no encontrada.",
+            )
+        if not request.vacation_type:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Tipo de vacaciones no encontrado para la solicitud.",
+            )
+
+        current_status = RequestStatus(request.status)
+        new_status = RequestStatus.REJECTED
+
+        allowed_transitions = {
+            RequestStatus.PENDING: [RequestStatus.VALIDATED, RequestStatus.REJECTED],
+            RequestStatus.VALIDATED: [RequestStatus.APPROVED, RequestStatus.REJECTED],
+            RequestStatus.APPROVED: [],
+            RequestStatus.REJECTED: [],
+        }
+
+        if new_status not in allowed_transitions.get(current_status, []):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Transición de estado no válida de '{current_status.value}' a '{new_status.value}'.",
+            )
+
+        if not rejection_reason:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La razón de rechazo es obligatoria cuando el estado es REJECTED.",
+            )
+
+        updated_request = await self.prisma_client.vacationrequest.update(
+            where={"id": request_id},
+            data={
+                "status": new_status,
+                "rejection_reason": rejection_reason,
+                "updated_at": datetime.now(),
+            },
+        )
+
+        return VacationRequestUpdateStatusResponse(
+            id=updated_request.id,
+            user_id=updated_request.user_id,
+            vacation_type=self._to_vacation_type_option(request.vacation_type),
+            start_date=updated_request.start_date.date(),
+            end_date=updated_request.end_date.date(),
+            total_days=request.requested_days,
+            status=updated_request.status,
+            rejection_reason=updated_request.rejection_reason,
+            payment_date=updated_request.payment_date.date() if updated_request.payment_date else None,
+            created_at=updated_request.created_at,
+            updated_at=updated_request.updated_at,
+        )
+
+    async def get_all_vacation_requests_hr(
+        self,
+        page: int,
+        page_size: int,
+        user_id: Optional[str],
+        email: Optional[str],
+        name: Optional[str],
+        status: Optional[str],
+        vacation_type_id: Optional[int],
+        sort_by: Optional[str],
+        sort_order: Optional[str],
+    ) -> VacationRequestHistoryResponse:
+        skip = (page - 1) * page_size
+        take = page_size
+
+        where_conditions: Dict[str, Any] = {}
+        user_where_conditions: Dict[str, Any] = {}
+
+        if user_id:
+            where_conditions["user_id"] = user_id
+        if email:
+            user_where_conditions["email"] = {"contains": email, "mode": "insensitive"}
+        if name:
+            user_where_conditions["name"] = {"contains": name, "mode": "insensitive"}
+
+        if user_where_conditions:
+            where_conditions["user"] = user_where_conditions
+
+        if status:
+            where_conditions["status"] = RequestStatus(status)
+        if vacation_type_id:
+            where_conditions["vacation_type_id"] = vacation_type_id
+
+        order_by_clause: Dict[str, Any] = {}
+        order_direction = sort_order if sort_order else "asc"
+
+        if sort_by == "user_id":
+            order_by_clause = {"user_id": order_direction}
+        elif sort_by == "email":
+            order_by_clause = {"user": {"email": order_direction}}
+        elif sort_by == "name":
+            order_by_clause = {"user": {"name": order_direction}}
+        elif sort_by == "status":
+            order_by_clause = {"status": order_direction}
+        elif sort_by == "vacation_type_id":
+            order_by_clause = {"vacation_type_id": order_direction}
+        elif sort_by == "start_date":
+            order_by_clause = {"start_date": order_direction}
+        elif sort_by == "end_date":
+            order_by_clause = {"end_date": order_direction}
+        elif sort_by == "requested_days":
+                order_by_clause = {"total_days": order_direction}
+        else:  # Default to created_at if sort_by is None or invalid
+            order_by_clause = {"created_at": "desc"}
+
+        requests = await self.prisma_client.vacationrequest.find_many(
+            where=where_conditions,
+            include={"user": True, "vacation_type": True},
+            order=order_by_clause,
+            skip=skip,
+            take=take,
+        )
+
+        total_requests = await self.prisma_client.vacationrequest.count(where=where_conditions)
+
+        items = [
+            VacationRequestHistoryItem(
+                id=request.id,
+                user=VacationRequestUser(
+                    id=request.user.id, email=request.user.email, name=request.user.name
+                ),
+                vacation_type=self._to_vacation_type_option(request.vacation_type),
+                start_date=request.start_date.date(),
+                end_date=request.end_date.date(),
+                total_days=request.requested_days,
+                status=request.status,
+                rejection_reason=request.rejection_reason,
+                payment_date=request.payment_date.date() if request.payment_date else None,
+                created_at=request.created_at,
+                updated_at=request.updated_at,
+            )
+            for request in requests
+            if request.vacation_type is not None and request.user is not None
+        ]
+        return VacationRequestHistoryResponse(
+            items=items, total_items=total_requests, page=page, page_size=page_size
+        )
 
     async def _ensure_user_exists(self, user_id: str):
         user = await self.prisma_client.user.find_unique(where={"id": user_id})
@@ -182,7 +507,7 @@ class VacationService:
             )
         return user
 
-    async def _ensure_vacation_type_exists(self, vacation_type_id: str):
+    async def _ensure_vacation_type_exists(self, vacation_type_id: int):
         vacation_type = await self.prisma_client.vacationtype.find_unique(
             where={"id": vacation_type_id}
         )

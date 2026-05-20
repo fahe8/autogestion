@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
@@ -29,6 +30,30 @@ class AzureUserClaims(BaseModel):
     roles: List[str] = Field(default_factory=list)
     scopes: List[str] = Field(default_factory=list)
     raw_claims: Dict[str, Any] = Field(default_factory=dict)
+
+
+class Permission(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+
+
+class Role(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+
+
+
+class UserProfile(BaseModel):
+    id: str
+    email: str
+    name: str
+    siigo_employee_id: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    role: Role
+    all_permissions: List[str] = Field(default_factory=list)
 
 
 class AzureAuthResponse(BaseModel):

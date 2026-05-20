@@ -10,7 +10,7 @@ class VacationSummary(BaseModel):
 
 
 class VacationTypeOption(BaseModel):
-    id: str
+    id: int
     code: str
     name: str
 
@@ -23,7 +23,7 @@ class VacationExcludedDate(BaseModel):
 
 class VacationRequestValidationRequest(BaseModel):
     user_id: str = Field(min_length=1)
-    vacation_type_id: str = Field(min_length=1)
+    vacation_type_id: int = Field(gt=0)
     start_date: date
     end_date: date
 
@@ -31,14 +31,14 @@ class VacationRequestValidationRequest(BaseModel):
 class VacationRequestValidationResponse(BaseModel):
     is_valid: bool
     message: str
-    requested_days: int
+    total_days: int
     business_dates: List[date] = Field(default_factory=list)
     excluded_dates: List[VacationExcludedDate] = Field(default_factory=list)
     errors: List[str] = Field(default_factory=list)
 
 
 class VacationRequestCreateRequest(VacationRequestValidationRequest):
-    payment_date: Optional[date] = None
+    pass
 
 
 class VacationRequestCreateResponse(BaseModel):
@@ -47,19 +47,48 @@ class VacationRequestCreateResponse(BaseModel):
     vacation_type: VacationTypeOption
     start_date: date
     end_date: date
-    requested_days: int
+    total_days: int
     status: str
     payment_date: Optional[date] = None
     created_at: datetime
     validation: VacationRequestValidationResponse
 
 
+class VacationRequestUser(BaseModel):
+    id: str
+    email: str
+    name: str
+
+
 class VacationRequestHistoryItem(BaseModel):
     id: str
+    user: VacationRequestUser  # Add user details here
     vacation_type: VacationTypeOption
     start_date: date
     end_date: date
-    requested_days: int
+    total_days: int
+    status: str
+    rejection_reason: Optional[str] = None
+    payment_date: Optional[date] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class VacationRequestApproveRequest(BaseModel):
+    payment_date: date
+
+
+class VacationRequestRejectRequest(BaseModel):
+    rejection_reason: str
+
+
+class VacationRequestUpdateStatusResponse(BaseModel):
+    id: str
+    user_id: str
+    vacation_type: VacationTypeOption
+    start_date: date
+    end_date: date
+    total_days: int
     status: str
     rejection_reason: Optional[str] = None
     payment_date: Optional[date] = None
@@ -69,3 +98,19 @@ class VacationRequestHistoryItem(BaseModel):
 
 class VacationRequestHistoryResponse(BaseModel):
     items: List[VacationRequestHistoryItem] = Field(default_factory=list)
+    total_items: int
+    page: int
+    page_size: int
+
+
+class VacationRequestDetailResponse(BaseModel):
+    id: str
+    user_id: str
+    vacation_type: VacationTypeOption
+    start_date: date
+    end_date: date
+    total_days: int
+    status: str
+    payment_date: Optional[date] = None
+    created_at: datetime
+    updated_at: datetime

@@ -82,7 +82,7 @@ model User {
 }
 
 model VacationType {
-  id          String            @id @default(uuid())
+  id          Int               @id @default(autoincrement())
   code        String            @unique
   name        String            @unique
   requests    VacationRequest[]
@@ -97,7 +97,7 @@ model VacationRequest {
   user              User           @relation(fields: [user_id], references: [id])
   user_id           String
   vacation_type     VacationType   @relation(fields: [vacation_type_id], references: [id])
-  vacation_type_id  String
+  vacation_type_id  Int
   start_date        DateTime
   end_date          DateTime
   requested_days    Int

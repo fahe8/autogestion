@@ -20,8 +20,9 @@ from src.schemas.authSchema import (
     AzureLogoutResponse,
     AzureTokenRequest,
     AzureUserClaims,
+    UserProfile,
 )
-from src.services.userService import ensure_local_user_from_azure
+from src.services.userService import ensure_local_user_from_azure, get_user_profile
 
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
@@ -106,8 +107,8 @@ async def logout_from_session() -> JSONResponse:
     return response
 
 
-@router.get("/me", response_model=AzureUserClaims)
+@router.get("/me", response_model=UserProfile)
 async def get_authenticated_user(
     current_user: AzureUserClaims = Depends(get_current_azure_user),
-) -> AzureUserClaims:
-    return current_user
+) -> UserProfile:
+    return await get_user_profile(current_user)

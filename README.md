@@ -522,17 +522,6 @@ Actualmente el proyecto ya tiene:
 - esquema Prisma definido
 - módulo de vacaciones en estado inicial
 
-## Pendientes naturales del proyecto
-
-Algunos siguientes pasos esperables serían:
-
-- conectar `VacationService` a Prisma/PostgreSQL
-- implementar correctamente creación de solicitudes de vacaciones
-- asociar auth con usuarios internos de base de datos
-- proteger rutas de negocio con autorización por roles/permisos
-- agregar validaciones y tests
-- documentar flujo de despliegue y variables productivas
-
 ## Notas
 
 - El backend ahora puede iniciar el login con Azure y crear una sesión local basada en cookie.
