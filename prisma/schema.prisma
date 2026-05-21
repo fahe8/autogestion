@@ -70,6 +70,9 @@ model User {
   id                String            @id @default(uuid())
   email             String            @unique
   name              String
+  number_identity   String
+  vacation          Vacation?         @relation(fields: [vacation_id], references: [id])
+  vacation_id       Int?
   role              Role              @relation(fields: [role_id], references: [id])
   role_id           Int
   siigo_employee_id String?
@@ -112,4 +115,16 @@ model VacationRequest {
   @@index([vacation_type_id])
 
   @@map("vacation_requests")
+}
+
+model Vacation{
+  id Int @id @default(autoincrement())
+  name_employee String
+  number_identity String
+  days_available Int
+  days_used Int
+  days_pending Int
+  date_join DateTime @db.Date
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 }

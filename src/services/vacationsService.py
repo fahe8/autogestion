@@ -38,22 +38,14 @@ class VacationService:
 
     async def get_vacation_summary(self, user_id: Optional[str] = None) -> VacationSummary:
         if not user_id:
-            return VacationSummary(diasDisponibles=DEFAULT_AVAILABLE_DAYS, diasDisfrutados=0)
+            return VacationSummary(diasDisponibles=0, diasDisfrutados=0, diasPendientes=0)
 
         await self._ensure_user_exists(user_id)
-        requests = await self.prisma_client.vacationrequest.find_many(
-            where={
-                "user_id": user_id,
-                "OR": [
-                    {"status": RequestStatus.VALIDATED},
-                    {"status": RequestStatus.APPROVED},
-                ],
-            }
-        )
-        used_days = sum(request.requested_days for request in requests)
+    
         return VacationSummary(
-            diasDisponibles=max(DEFAULT_AVAILABLE_DAYS - used_days, 0),
-            diasDisfrutados=used_days,
+            diasDisponibles=10,
+            diasDisfrutados=15,
+            diasPendientes=1,
         )
 
     async def get_vacation_types(self) -> List[VacationTypeOption]:

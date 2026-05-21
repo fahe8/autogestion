@@ -84,12 +84,7 @@ async def azure_login_callback(
         expected_nonce=request.cookies.get("autogestion_oauth_nonce"),
     )
     await ensure_local_user_from_azure(user)
-    response = JSONResponse(
-        content=AzureAuthResponse(
-            message="Login con Azure completado correctamente.",
-            user=user,
-        ).model_dump()
-    )
+    response = RedirectResponse(url=settings.frontend_post_login_redirect_url, status_code=status.HTTP_302_FOUND)
     set_authenticated_session(response, id_token, user)
     clear_login_flow_cookies(response)
     return response

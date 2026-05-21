@@ -97,6 +97,16 @@ class Settings:
         600,
     )
 
+    siigo_api_key: str = os.getenv("SIIGO_API_KEY", "")
+    siigo_user_api: str = os.getenv("SIIGO_USER_API", "")
+    siigo_base_url: str = os.getenv("SIIGO_BASE_URL", "https://api.siigo.com/v1")
+    siigo_company_name: str = os.getenv("SIIGO_COMPANY_NAME", "2NV SAS")
+
+    frontend_post_login_redirect_url: str = os.getenv(
+        "FRONTEND_POST_LOGIN_REDIRECT_URL",
+        "http://localhost:3000/dashboard" # Valor por defecto, ajusta según tu frontend
+    )
+
     @property
     def docs_url(self) -> Optional[str]:
         return "/docs" if self.docs_enabled else None

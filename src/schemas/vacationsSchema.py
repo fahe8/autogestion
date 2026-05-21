@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 class VacationSummary(BaseModel):
     diasDisponibles: int
     diasDisfrutados: int
+    diasPendientes: int
 
 
 class VacationTypeOption(BaseModel):
