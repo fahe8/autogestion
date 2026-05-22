@@ -29,6 +29,7 @@ class AzureUserClaims(BaseModel):
     iss: str
     roles: List[str] = Field(default_factory=list)
     scopes: List[str] = Field(default_factory=list)
+    employee_id: Optional[str] = None
     raw_claims: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -49,7 +50,9 @@ class UserProfile(BaseModel):
     id: str
     email: str
     name: str
+    number_identity: Optional[str] = None
     siigo_employee_id: Optional[str] = None
+    vacation_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime
     role: Role

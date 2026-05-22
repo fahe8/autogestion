@@ -1,0 +1,133 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider  = "prisma-client-py"
+  interface = "asyncio"
+  output    = "../src/generated"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Vacation {
+  id              Int      @id @default(autoincrement())
+  name_employee   String
+  number_identity String
+  days_available  Int
+  days_used       Int
+  days_pending    Int
+  date_join       DateTime @db.Date
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+  user            User?
+
+  @@map("vacations")
+}
+
+model Role {
+  id          Int              @id @default(autoincrement())
+  name        String           @unique
+  description String?
+  users       User[]
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id               Int              @id @default(autoincrement())
+  name             String           @unique
+  description      String?
+  roles            RolePermission[]
+  user_permissions UserPermission[]
+
+  @@map("permissions")
+}
+
+model UserPermission {
+  user          User       @relation(fields: [user_id], references: [id])
+  user_id       String
+  permission    Permission @relation(fields: [permission_id], references: [id])
+  permission_id Int
+
+  @@id([user_id, permission_id])
+  @@map("user_permissions")
+}
+
+model RolePermission {
+  role          Role       @relation(fields: [role_id], references: [id])
+  role_id       Int
+  permission    Permission @relation(fields: [permission_id], references: [id])
+  permission_id Int
+
+  @@id([role_id, permission_id])
+  @@map("role_permissions")
+}
+
+enum RequestStatus {
+  PENDING
+  VALIDATED
+  APPROVED
+  REJECTED
+}
+
+enum SyncStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+model User {
+  id                String            @id @default(uuid())
+  email             String            @unique
+  name              String
+  number_identity   String            @unique
+  vacation          Vacation?         @relation(fields: [vacation_id], references: [id])
+  vacation_id       Int?              @unique
+  role              Role              @relation(fields: [role_id], references: [id])
+  role_id           Int
+  siigo_employee_id String?
+  vacation_requests VacationRequest[]
+  permissions       UserPermission[]
+  created_at        DateTime          @default(now())
+  updated_at        DateTime          @updatedAt
+
+  @@map("users")
+}
+
+model VacationType {
+  id         Int               @id @default(autoincrement())
+  code       String            @unique
+  name       String            @unique
+  requests   VacationRequest[]
+  created_at DateTime          @default(now())
+  updated_at DateTime          @updatedAt
+
+  @@map("vacation_types")
+}
+
+model VacationRequest {
+  id                String        @id @default(uuid())
+  user              User          @relation(fields: [user_id], references: [id])
+  user_id           String
+  vacation_type     VacationType  @relation(fields: [vacation_type_id], references: [id])
+  vacation_type_id  Int
+  start_date        DateTime
+  end_date          DateTime
+  requested_days    Int
+  status            RequestStatus @default(PENDING)
+  rejection_reason  String?
+  payment_date      DateTime?
+  siigo_sync_status SyncStatus    @default(PENDING)
+  siigo_error_log   String?
+  created_at        DateTime      @default(now())
+  updated_at        DateTime      @updatedAt
+
+  @@index([vacation_type_id])
+  @@map("vacation_requests")
+}

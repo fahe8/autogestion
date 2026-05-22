@@ -5,7 +5,7 @@ import holidays
 from fastapi import HTTPException, status
 
 from src.core.db import prisma
-from src.generated.prisma.enums import RequestStatus
+from src.generated.enums import RequestStatus
 from src.schemas.vacationsSchema import (
     VacationExcludedDate,
     VacationRequestCreateRequest,
@@ -18,8 +18,6 @@ from src.schemas.vacationsSchema import (
     VacationTypeOption,
     VacationRequestUser,
     VacationRequestDetailResponse,
-    VacationRequestApproveRequest,
-    VacationRequestRejectRequest,
     VacationRequestUpdateStatusResponse,
 )
 
@@ -40,12 +38,15 @@ class VacationService:
         if not user_id:
             return VacationSummary(diasDisponibles=0, diasDisfrutados=0, diasPendientes=0)
 
-        await self._ensure_user_exists(user_id)
+        user = await self._ensure_user_exists(user_id, include_vacation=True)
     
+        if not user.vacation:
+            return VacationSummary(diasDisponibles=0, diasDisfrutados=0, diasPendientes=0)
+
         return VacationSummary(
-            diasDisponibles=10,
-            diasDisfrutados=15,
-            diasPendientes=1,
+            diasDisponibles=user.vacation.days_available,
+            diasDisfrutados=user.vacation.days_used,
+            diasPendientes=user.vacation.days_pending,
         )
 
     async def get_vacation_types(self) -> List[VacationTypeOption]:
@@ -55,12 +56,13 @@ class VacationService:
     async def validate_vacation_request(
         self, payload: VacationRequestValidationRequest
     ) -> VacationRequestValidationResponse:
-        await self._ensure_user_exists(payload.user_id)
+        user = await self._ensure_user_exists(payload.user_id, include_vacation=True)
         await self._ensure_vacation_type_exists(payload.vacation_type_id)
 
         errors: List[str] = []
         excluded_dates = self._get_excluded_dates(payload.start_date, payload.end_date)
         business_dates = self._get_business_dates(payload.start_date, payload.end_date)
+        total_days = len(business_dates)
         
         current_date = date.today()
 
@@ -84,6 +86,15 @@ class VacationService:
         if not business_dates:
             errors.append("El rango seleccionado no contiene dias habiles.")
 
+        # Validación de saldo de días
+        if user.vacation:
+            if total_days > user.vacation.days_pending:
+                errors.append(
+                    f"La cantidad de días solicitados ({total_days}) supera los días pendientes disponibles ({user.vacation.days_pending})."
+                )
+        else:
+            errors.append("No se encontró un registro de vacaciones vinculado a su usuario.")
+
         overlapping_requests = await self._find_overlapping_requests(
             user_id=payload.user_id,
             start_date=payload.start_date,
@@ -100,7 +111,7 @@ class VacationService:
                 if is_valid
                 else "La solicitud no supera las validaciones."
             ),
-            total_days=len(business_dates),
+            total_days=total_days,
             business_dates=business_dates,
             excluded_dates=excluded_dates,
             errors=errors,
@@ -127,7 +138,7 @@ class VacationService:
                 "vacation_type_id": payload.vacation_type_id,
                 "start_date": self._to_datetime(payload.start_date),
                 "end_date": self._to_datetime(payload.end_date),
-                "total_days": validation.total_days,
+                "requested_days": validation.total_days,
             }
         )
 
@@ -157,7 +168,7 @@ class VacationService:
 
         requests = await self.prisma_client.vacationrequest.find_many(
             where={"user_id": user_id},
-            include={"user": True, "vacation_type": True},
+            include={"vacation_type": True},
             order={"created_at": "desc"},
             skip=skip,
             take=take,
@@ -170,21 +181,17 @@ class VacationService:
         items = [
             VacationRequestHistoryItem(
                 id=request.id,
-                user=VacationRequestUser(
-                    id=request.user.id, email=request.user.email, name=request.user.name
-                ),
-                vacation_type=self._to_vacation_type_option(request.vacation_type),
+                vacation_type_code=request.vacation_type.code,
+                vacation_type_name=request.vacation_type.name,
                 start_date=request.start_date.date(),
                 end_date=request.end_date.date(),
                 total_days=request.requested_days,
                 status=request.status,
                 rejection_reason=request.rejection_reason,
-                payment_date=request.payment_date.date() if request.payment_date else None,
                 created_at=request.created_at,
-                updated_at=request.updated_at,
             )
             for request in requests
-            if request.vacation_type is not None and request.user is not None
+            if request.vacation_type is not None
         ]
         return VacationRequestHistoryResponse(
             items=items, total_items=total_requests, page=page, page_size=page_size
@@ -490,8 +497,9 @@ class VacationService:
             items=items, total_items=total_requests, page=page, page_size=page_size
         )
 
-    async def _ensure_user_exists(self, user_id: str):
-        user = await self.prisma_client.user.find_unique(where={"id": user_id})
+    async def _ensure_user_exists(self, user_id: str, include_vacation: bool = False):
+        include = {"vacation": True} if include_vacation else None
+        user = await self.prisma_client.user.find_unique(where={"id": user_id}, include=include)
         if user is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

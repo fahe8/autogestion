@@ -89,6 +89,31 @@ def _token_to_user_claims(payload: Dict[str, Any]) -> AzureUserClaims:
     )
 
 
+async def fetch_azure_extended_profile(access_token: str) -> Dict[str, Any]:
+    """
+    Consulta Microsoft Graph API para obtener detalles extendidos del usuario.
+    Se solicita explícitamente employeeId ya que no viene en el conjunto por defecto.
+    """
+    try:
+        # Seleccionamos campos especificos para asegurar que employeeId venga incluido
+        fields = "employeeId"
+        url = f"{settings.azure_graph_url}?$select={fields}"
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                url,
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            if response.status_code == 200:
+                return response.json()
+            else:
+                print(f"Error al consultar Microsoft Graph: {response.status_code} {response.text}")
+                return {}
+    except Exception as exc:
+        print(f"Excepcion al consultar Microsoft Graph: {exc}")
+        return {}
+
+
 async def fetch_openid_config() -> Dict[str, Any]:
     global _openid_config_cache, _openid_config_cache_expires_at
 
@@ -185,14 +210,15 @@ def clear_login_flow_cookies(response: Response) -> None:
     response.delete_cookie(_AUTH_CODE_VERIFIER_COOKIE, path="/")
 
 
-def set_authenticated_session(response: Response, token: str, user: AzureUserClaims) -> None:
-    max_age: Optional[int] = None
-    expires_at = user.raw_claims.get("exp")
-    if isinstance(expires_at, int):
-        max_age = max(0, expires_at - int(time()))
-
+def _set_token_cookie(
+    response: Response,
+    *,
+    cookie_name: str,
+    token: str,
+    max_age: Optional[int],
+) -> None:
     response.set_cookie(
-        settings.auth_session_cookie_name,
+        cookie_name,
         token,
         httponly=True,
         secure=settings.auth_cookie_secure,
@@ -202,8 +228,26 @@ def set_authenticated_session(response: Response, token: str, user: AzureUserCla
     )
 
 
+def set_authenticated_session(response: Response, token: str, user: AzureUserClaims) -> None:
+    max_age: Optional[int] = None
+    expires_at = user.raw_claims.get("exp") 
+    if isinstance(expires_at, int):
+        max_age = max(0, expires_at - int(time()))
+
+    _set_token_cookie(
+        response,
+        cookie_name=settings.auth_session_cookie_name,
+        token=token,
+        max_age=max_age,
+    )
+
+
 def clear_authenticated_session(response: Response) -> None:
     response.delete_cookie(settings.auth_session_cookie_name, path="/")
+
+
+def clear_onboarding_session(response: Response) -> None:
+    response.delete_cookie(settings.auth_onboarding_cookie_name, path="/")
 
 
 async def exchange_authorization_code(code: str, code_verifier: str) -> Dict[str, Any]:
@@ -327,6 +371,8 @@ async def complete_azure_login(
 
     token_payload = await exchange_authorization_code(code, code_verifier)
     id_token = token_payload.get("id_token")
+    access_token = token_payload.get("access_token")
+
     if not isinstance(id_token, str) or not id_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -334,6 +380,14 @@ async def complete_azure_login(
         )
 
     user = await verify_azure_token(id_token, expected_nonce=expected_nonce)
+
+    # If we have an access token, fetch extended profile from Microsoft Graph
+    if isinstance(access_token, str) and access_token:
+        extended_profile = await fetch_azure_extended_profile(access_token)
+        if extended_profile:
+            user.employee_id = extended_profile.get("employeeId")
+
+
     return user, id_token
 
 

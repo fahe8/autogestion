@@ -88,6 +88,10 @@ class Settings:
         "AUTH_SESSION_COOKIE_NAME",
         "autogestion_session",
     )
+    auth_onboarding_cookie_name: str = os.getenv(
+        "AUTH_ONBOARDING_COOKIE_NAME",
+        "autogestion_onboarding_session",
+    )
     auth_cookie_secure: bool = _parse_bool(
         os.getenv("AUTH_COOKIE_SECURE"),
         False,
@@ -104,7 +108,16 @@ class Settings:
 
     frontend_post_login_redirect_url: str = os.getenv(
         "FRONTEND_POST_LOGIN_REDIRECT_URL",
-        "http://localhost:3000/dashboard" # Valor por defecto, ajusta según tu frontend
+        "http://localhost:3000/inicio",
+    )
+    frontend_onboarding_redirect_url: str = os.getenv(
+        "FRONTEND_ONBOARDING_REDIRECT_URL",
+        "http://localhost:3000/completar-perfil",
+    )
+
+    azure_graph_url: str = os.getenv(
+        "AZURE_GRAPH_URL",
+        "https://graph.microsoft.com/v1.0/me",
     )
 
     @property

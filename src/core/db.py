@@ -1,4 +1,4 @@
-from src.generated.prisma import Prisma
+from src.generated import Prisma
 
 
 prisma = Prisma()

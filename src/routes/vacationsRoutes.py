@@ -2,6 +2,7 @@ from datetime import date
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import PlainTextResponse
 
 from src.controllers.vacationsController import (
     get_vacation_history_controller,
@@ -20,7 +21,6 @@ from src.core.security import permission_required
 from src.schemas.authSchema import AzureUserClaims
 from src.schemas.vacationsSchema import (
     VacationRequestCreateRequest,
-    VacationRequestCreateResponse,
     VacationRequestHistoryResponse,
     VacationRequestValidationRequest,
     VacationRequestValidationResponse,
@@ -90,16 +90,17 @@ async def validate_vacation_request(
 
 @router.post(
     "",
-    response_model=VacationRequestCreateResponse,
     status_code=status.HTTP_201_CREATED,
+    response_class=PlainTextResponse,
     dependencies=[Depends(permission_required(["CREATE_VACATION_REQUEST"]))],
 )
 async def post_vacations(
     payload: VacationRequestCreateRequest,
     user_id: str = Depends(get_current_user_id),
-) -> VacationRequestCreateResponse:
+) -> str:
     payload.user_id = user_id
-    return await post_vacations_controller(payload)
+    await post_vacations_controller(payload)
+    return "Created success"
 
 
 @router.get("/requests/history/{user_id}", response_model=VacationRequestHistoryResponse)

@@ -63,16 +63,14 @@ class VacationRequestUser(BaseModel):
 
 class VacationRequestHistoryItem(BaseModel):
     id: str
-    user: VacationRequestUser  # Add user details here
-    vacation_type: VacationTypeOption
+    vacation_type_code: str = Field(min_length=1),
+    vacation_type_name: str = Field(min_length=1),
     start_date: date
     end_date: date
     total_days: int
     status: str
     rejection_reason: Optional[str] = None
-    payment_date: Optional[date] = None
     created_at: datetime
-    updated_at: datetime
 
 
 class VacationRequestApproveRequest(BaseModel):

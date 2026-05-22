@@ -11,12 +11,16 @@ La API utiliza autenticación basada en Azure AD, implementando un flujo de aute
 1.  **Inicio de Sesión:** Cuando un usuario intenta acceder a un recurso protegido, es redirigido a la página de inicio de sesión de Microsoft.
 2.  **Redirección y Código de Autorización:** Tras una autenticación exitosa en Microsoft, el usuario es redirigido de vuelta a un endpoint de callback de la API (`/auth/callback`) con un código de autorización.
 3.  **Intercambio de Token:** La API intercambia este código de autorización por un ID Token y un Access Token con el servidor de Azure AD.
-4.  **Sesión Basada en Cookies:**
-    *   El **ID Token** (que contiene la información del usuario autenticado) se almacena en una **cookie segura, HTTP-only y SameSite=Lax** llamada `autogestion_session`.
+4.  **Creación Automática de Usuarios:**
+    *   Si Azure AD autentica al usuario pero todavía no existe un registro local en la tabla `users`, el backend crea el usuario automáticamente.
+    *   Se utiliza el campo `employeeId` de Microsoft Graph como el `number_identity` (documento de identidad) del usuario.
+    *   Si el `employeeId` no está configurado en Azure AD, el login fallará, ya que este campo es obligatorio para la vinculación local.
+5.  **Sesión Basada en Cookies:**
+    *   Una vez el usuario ya existe, el **ID Token** se almacena en una cookie segura, HTTP-only y SameSite=Lax llamada `autogestion_session`.
     *   Esta cookie es gestionada por el backend y enviada automáticamente por el navegador con cada solicitud subsiguiente a la API.
     *   El frontend **no tiene acceso directo** a esta cookie ni al token, lo que mejora la seguridad (protección contra ataques XSS).
-5.  **Autorización de Solicitudes:** Para cada solicitud a un endpoint protegido, la API verifica la validez del ID Token en la cookie `autogestion_session`. La función `get_current_azure_user` (definida como una dependencia de FastAPI) se encarga de extraer y validar este token, proporcionando la información del usuario (`AzureUserClaims`) a las funciones de ruta.
-6.  **Cierre de Sesión:** El endpoint `/auth/logout` elimina la cookie de sesión, cerrando la sesión del usuario.
+6.  **Autorización de Solicitudes:** Para cada solicitud a un endpoint protegido, la API verifica la validez del ID Token en la cookie `autogestion_session`. La función `get_current_azure_user` (definida como una dependencia de FastAPI) se encarga de extraer y validar este token, proporcionando la información del usuario (`AzureUserClaims`) a las funciones de ruta.
+7.  **Cierre de Sesión:** El endpoint `/auth/logout` elimina la cookie de sesión `autogestion_session`.
 
 Este enfoque basado en cookies HTTP-only es ideal para aplicaciones web tradicionales donde el frontend y el backend residen en el mismo dominio o dominios controlados, proporcionando una capa adicional de seguridad al no exponer el token directamente al JavaScript del cliente.
 
@@ -107,31 +111,9 @@ El proyecto sigue una estructura modular para organizar el código de manera ló
       "end_date": "2026-05-19"
     }
     ```
-*   **Respuesta (201 Created):** `VacationRequestCreateResponse`
-    ```json
-    {
-      "id": "string",
-      "user_id": "string",
-      "vacation_type": {
-        "id": 0,
-        "code": "string",
-        "name": "string"
-      },
-      "start_date": "2026-05-19",
-      "end_date": "2026-05-19",
-      "total_days": 0,
-      "status": "string",
-      "payment_date": "2026-05-19",
-      "created_at": "2026-05-19T23:36:00.000Z",
-      "validation": {
-        "is_valid": true,
-        "message": "string",
-        "total_days": 0,
-        "business_dates": [],
-        "excluded_dates": [],
-        "errors": []
-      }
-    }
+*   **Respuesta (201 Created):** `text/plain`
+    ```
+    Created success
     ```
 *   **Permisos Requeridos:** `CREATE_VACATION_REQUEST`
 
@@ -150,16 +132,8 @@ El proyecto sigue una estructura modular para organizar el código de manera ló
       "items": [
         {
           "id": "string",
-          "user": {
-            "id": "string",
-            "email": "user@example.com",
-            "name": "User Name"
-          },
-          "vacation_type": {
-            "id": 0,
-            "code": "string",
-            "name": "string"
-          },
+          "code": "string",
+          "name": "string",
           "start_date": "2026-05-19",
           "end_date": "2026-05-19",
           "total_days": 0,
